@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Red de viaje · Prototipo</title>
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap">
+      <div class="brand">Red de viaje</div>
+      <nav aria-label="Secciones">
+        <a href="#lugares" id="nav-lugares">Lugares</a>
+        <a href="#guias" id="nav-guias">Guías locales</a>
+      </nav>
+      <div class="profile"><span class="avatar" aria-hidden="true">S</span> Champions (tú)</div>
+    </div>
+  </header>
+  <main class="wrap">
+    <div id="screen"></div>
+  </main>
+  <script>
+    const people = {
+      sofia: 'Tú', ana: 'Ana', marco: 'Marco', luis: 'Luis',
+      valeria: 'Valeria', elena: 'Elena Torres'
+    };
+
+    // Cada par representa una amistad mutua. CONOCE_A va de Marco a Elena.
+    const friendships = [['sofia', 'ana'], ['sofia', 'marco'], ['ana', 'luis'], ['marco', 'valeria'], ['marco', 'luis']];
+    const guideConnections = { marco: ['elena'] };
+    const places = {
+      patio: { name: 'El Patio del Café', type: 'Restaurante', area: 'Centro de Xalapa', likes: ['ana', 'luis', 'valeria'] },
+      terraza: { name: 'La Terraza del Bosque', type: 'Restaurante', area: 'Zona universitaria, Xalapa', likes: ['marco'] }
+    };
+    const guides = {
+      elena: { name: people.elena, type: 'Guía local', area: 'Xalapa y alrededores', focus: 'Recorridos a pie por el centro histórico' }
+    };
+    const sections = {
+      lugares: {
+        title: 'Explora lugares',
+        intro: 'Consulta qué amigos de tus amigos recomendarían un lugar.',
+        entries: places,
+        context: 'Restaurantes en Xalapa',
+        action: 'Ver lugar'
+      },
+      guias: {
+        title: 'Guías locales',
+        intro: 'Descubre cómo estás conectado con un guía a través de tu red.',
+        entries: guides,
+        context: 'Xalapa y alrededores',
+        action: 'Ver perfil'
+      }
+    };
+    const screen = document.querySelector('#screen');
+
+    function friendsOf(person) {
+      return friendships.flatMap(([first, second]) => {
+        if (first === person) return [second];
+        if (second === person) return [first];
+        return [];
+      });
+    }
+
+    function recommendations(place) {
+      const directFriends = new Set(friendsOf('sofia'));
+      const matches = new Map();
+      for (const friend of directFriends) {
+        for (const contact of friendsOf(friend)) {
+          if (contact === 'sofia' || directFriends.has(contact) || !place.likes.includes(contact)) continue;
+          const connections = matches.get(contact) ?? [];
+          connections.push(friend);
+          matches.set(contact, connections);
+        }
+      }
+      return matches;
+    }
+
+    function pathToGuide(guide) {
+      const queue = [['sofia']];
+      const visited = new Set(['sofia']);
+      for (let index = 0; index < queue.length; index++) {
+        const path = queue[index];
+        const person = path.at(-1);
+        if (person === guide) return path;
+        for (const contact of [...friendsOf(person), ...(guideConnections[person] ?? [])]) {
+          if (visited.has(contact)) continue;
+          visited.add(contact);
+          queue.push([...path, contact]);
+        }
+      }
+      return [];
+    }
+
+    function showPath(path) {
+      const label = path.map(person => people[person]).join(', luego ');
+      return `<ol class="path" aria-label="${label}">${path.map((person, index) => `
+        <li>${index ? '<span aria-hidden="true">→</span>' : ''}<span class="node">${people[person]}</span></li>
+      `).join('')}</ol>`;
+    }
+
+    function renderRecommendations(place) {
+      const matches = recommendations(place);
+      if (!matches.size) return `
+        <h2 id="result-title" tabindex="-1">Sin coincidencias</h2>
+        <p>Por ahora, a ninguno de los amigos de tus amigos le ha gustado este lugar.</p>
+      `;
+      const title = matches.size === 1 ? '1 persona de tu red' : `${matches.size} personas de tu red`;
+      return `
+        <h2 id="result-title" tabindex="-1">${title}</h2>
+        <ul class="result-list">${Array.from(matches, ([contact, connections]) => `
+          <li>
+            <h3>${people[contact]}</h3>
+            <p>A ${people[contact]} le gustó este restaurante.</p>
+            ${connections.map(friend => showPath(['sofia', friend, contact])).join('')}
+          </li>
+        `).join('')}</ul>
+      `;
+    }
+
+    function renderGuideConnection(guide) {
+      const path = pathToGuide(guide);
+      if (!path.length) return `
+        <h2 id="result-title" tabindex="-1">Sin conexión</h2>
+        <p>Este perfil aún no tiene un camino desde tu red.</p>
+      `;
+      const hops = path.length - 1;
+      return `
+        <h2 id="result-title" tabindex="-1">Camino más corto · ${hops} ${hops === 1 ? 'salto' : 'saltos'}</h2>
+        ${showPath(path)}
+        <p>${path.slice(1).map((person, index) => {
+          const from = index ? people[path[index]] : 'Tú';
+          if (person === guide) return `${from} ${index ? 'conoce' : 'conoces'} a ${people[person]}.`;
+          return `${from} ${index ? 'tiene' : 'tienes'} una amistad con ${people[person]}.`;
+        }).join(' ')}</p>
+      `;
+    }
+
+    function renderList(key, section) {
+      return `
+        <p class="context">${section.context}</p>
+        <h1 id="screen-title" tabindex="-1">${section.title}</h1>
+        <p class="intro">${section.intro}</p>
+        <div class="cards">${Object.entries(section.entries).map(([id, entry]) => `
+          <article class="card">
+            <div class="card-art card-art--${key}" aria-hidden="true"><span class="pictogram"></span></div>
+            <div class="card-body">
+              <p class="context">${entry.area}</p>
+              <h2>${entry.name}</h2>
+              ${entry.focus ? `<p class="muted">${entry.focus}</p>` : ''}
+              <a class="button" href="#${key}/${id}" aria-label="${section.action}: ${entry.name}">${section.action}</a>
+            </div>
+          </article>
+        `).join('')}</div>
+      `;
+    }
+
+    function renderDetail(key, entry) {
+      const isPlace = key === 'lugares';
+      const question = isPlace ? '¿A qué amigos de mis amigos les gustó?' : '¿Qué tan cerca estoy de esta guía?';
+      const hint = isPlace ? 'Consulta quiénes le dieron Me gusta y cómo llegas a ellos.' : 'Consulta el camino más corto desde tu perfil.';
+      return `
+        <a class="back" href="#${key}">← Volver a ${isPlace ? 'lugares' : 'guías locales'}</a>
+        <div class="detail">
+          <div>
+            <p class="context">${entry.type}</p>
+            <h1 id="screen-title" tabindex="-1">${entry.name}</h1>
+            ${entry.focus ? `<p class="intro">${entry.focus}</p>` : ''}
+          </div>
+          <aside aria-label="Ubicación"><h2>Ubicación</h2><p class="muted">${entry.area}</p></aside>
+        </div>
+        <section class="panel query" aria-labelledby="query-title">
+          <h2 id="query-title">${question}</h2>
+          <p class="muted">${hint}</p>
+          <button type="button" class="button" id="query-button" aria-expanded="false" aria-controls="results">${isPlace ? 'Ver coincidencias' : 'Ver conexión'}</button>
+        </section>
+        <section id="results" class="panel results" aria-labelledby="result-title" hidden></section>
+      `;
+    }
+
+    function renderScreen(focusTitle = false) {
+      const [requested, id] = location.hash.slice(1).split('/');
+      const key = Object.hasOwn(sections, requested) ? requested : 'lugares';
+      const section = sections[key];
+      const entry = Object.hasOwn(section.entries, id) ? section.entries[id] : null;
+      document.querySelectorAll('nav a').forEach(link => {
+        if (link.id === `nav-${key}`) link.setAttribute('aria-current', entry ? 'true' : 'page');
+        else link.removeAttribute('aria-current');
+      });
+      document.title = `${entry?.name ?? section.title} · Red de viaje`;
+      screen.innerHTML = entry ? renderDetail(key, entry) : renderList(key, section);
+      if (entry) {
+        const button = document.querySelector('#query-button');
+        button.addEventListener('click', () => {
+          const results = document.querySelector('#results');
+          if (!results.hidden) {
+            results.hidden = true;
+            button.setAttribute('aria-expanded', 'false');
+            return;
+          }
+          results.innerHTML = key === 'lugares' ? renderRecommendations(entry) : renderGuideConnection(id);
+          results.hidden = false;
+          button.setAttribute('aria-expanded', 'true');
+          document.querySelector('#result-title').focus();
+        });
+      }
+      if (focusTitle) {
+        document.querySelector('#screen-title').focus({ preventScroll: true });
+        window.scrollTo(0, 0);
+      }
+    }
+
+    window.addEventListener('hashchange', () => renderScreen(true));
+    renderScreen();
+  </script>
+</body>
+</html>
